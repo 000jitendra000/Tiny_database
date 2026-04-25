@@ -180,14 +180,6 @@ storage_read:
     jl      .err
     mov     r14, rax
 
-    ; ── Step 2: Open data.db read-only ────────────────────────
-    mov     rdi, data_path
-    mov     rsi, O_RDONLY
-    mov     rdx, 0
-    call    file_open
-    cmp     rax, 0
-    jl      .err
-    mov     r14, rax            ; r14 = fd
 
     ; ── Step 3: Seek to the record's byte offset ──────────────
     ; rbx safely holds the original offset argument.

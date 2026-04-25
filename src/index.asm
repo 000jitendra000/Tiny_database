@@ -328,25 +328,20 @@ index_delete:
     jl      .not_found
     mov     r14, rax
 
-    ; rbx = matched record's start offset, or -1 if not found yet.
-    ; We use -1 as "not found" sentinel because offset 0 is a valid
-    ; record position (the very first record in index.db).
-    mov     rbx, -1
+    ; rbx = found-any flag: 0 = no match yet, 1 = at least one tombstoned.
+    xor     rbx, rbx
 
-    ; r15 = our manual file position counter.
-    ; We track it ourselves because after each read() the kernel
-    ; advances its internal cursor, but we need to know WHERE each
-    ; record STARTED — which is before the read, not after.
-    xor     r15, r15            ; current_offset = 0 (start of file)
+    ; r15 = manual file position counter (start of current record).
+    xor     r15, r15
 
-    ; Seek to beginning of index.db before scanning
+    ; Seek to beginning of index.db
     mov     rdi, r14
     mov     rsi, 0
     mov     rdx, SEEK_SET
     call    file_seek
 
 .scan_loop:
-    ; r15 = byte offset of the record we're about to read
+    ; r15 = start offset of the record we are about to read
     mov     rdi, r14
     mov     rsi, scan_buf
     mov     rdx, INDEX_RECORD_SIZE
@@ -355,7 +350,7 @@ index_delete:
     cmp     rax, INDEX_RECORD_SIZE
     jne     .scan_done
 
-    ; Skip deleted records
+    ; Skip already-deleted records
     movzx   rax, byte [scan_buf + INDEX_OFF_DELETED]
     cmp     rax, 1
     je      .next_record
@@ -365,45 +360,44 @@ index_delete:
     cmp     rax, r13
     jne     .next_record
 
-    ; Compare key
+    ; Compare key bytes
     mov     rdi, scan_buf + INDEX_OFF_KEY
     mov     rsi, r12
     call    str_cmp
     test    rax, rax
     jnz     .next_record
 
-    ; Match — remember this record's start offset (r15 = start of THIS record)
-    mov     rbx, r15            ; rbx = start of matched record (not a flag now!)
-
-.next_record:
-    add     r15, INDEX_RECORD_SIZE  ; advance to next record's start
-    jmp     .scan_loop
-
-.scan_done:
-    ; rbx == -1 means no match was found
-    cmp     rbx, -1
-    je      .not_found_close
-
-    ; ── Seek to deleted field of the found record ─────────────
-    ; rbx = byte offset of the matched record's START in index.db
-    ; The deleted field is at: rbx + INDEX_OFF_DELETED (= rbx + 76)
-
-    mov     rsi, rbx
-    add     rsi, INDEX_OFF_DELETED      ; exact byte offset of the deleted flag
-
+    ; ── Match: tombstone this record in-place ─────────────────
+    ; Seek to its deleted field, write 0x01, seek back to continue.
+    mov     rsi, r15
+    add     rsi, INDEX_OFF_DELETED
     mov     rdi, r14
     mov     rdx, SEEK_SET
     call    file_seek
     cmp     rax, 0
-    jl      .not_found_close
+    jl      .next_record        ; seek failed — skip, keep scanning
 
-    ; Write 0x01 to the deleted flag (single byte)
-    mov     byte [scan_buf], 1          ; reuse scan_buf for 1-byte write
+    mov     byte [scan_buf], 1
     mov     rdi, r14
     mov     rsi, scan_buf
     mov     rdx, 1
     call    file_write
-    cmp     rax, 1
+
+    ; Seek back to after this record so the next read() is correct
+    mov     rsi, r15
+    add     rsi, INDEX_RECORD_SIZE
+    mov     rdi, r14
+    mov     rdx, SEEK_SET
+    call    file_seek
+
+    mov     rbx, 1              ; at least one record deleted
+
+.next_record:
+    add     r15, INDEX_RECORD_SIZE
+    jmp     .scan_loop
+
+.scan_done:
+    cmp     rbx, 1
     jne     .not_found_close
 
     mov     rdi, r14

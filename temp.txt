@@ -1,0 +1,36 @@
+.do_set:
+    ; key = rbx+r8,  value = rbx+r9
+
+    ; key length
+    lea     rdi, [rbx + r8]
+    call    str_len
+    mov     r10, rax            ; r10 = key_len
+
+    ; value length
+    lea     rdi, [rbx + r9]
+    call    str_len
+    mov     r15, rax            ; r11 = val_len
+
+    ; storage_append(value_ptr, val_len) → rax = data offset
+    lea     rdi, [rbx + r9]
+    mov     rsi, r15
+    call    storage_append
+    cmp     rax, -1
+    je      .send_err
+    mov     rbp, rax            ; rbp = data offset
+
+    ; index_put(key_ptr, key_len, data_offset, val_len)
+    lea     rdi, [rbx + r8]
+    mov     rsi, r10
+    mov     rdx, rbp
+    mov     rcx, r15
+    call    index_put
+    cmp     rax, -1
+    je      .send_err
+
+    ; respond OK
+    mov     rdi, r13
+    lea     rsi, [resp_ok]
+    mov     rdx, resp_ok_len
+    call    net_write
+    jmp     .client_loop
