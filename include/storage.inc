@@ -1,0 +1,2 @@
+extern storage_append
+extern storage_read

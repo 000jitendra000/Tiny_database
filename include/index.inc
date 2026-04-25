@@ -1,0 +1,3 @@
+extern index_put
+extern index_find
+extern index_delete

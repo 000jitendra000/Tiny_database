@@ -1,0 +1,42 @@
+tinydb/
+├── Makefile                 ; build automation
+├── README.md                ; usage + db format docs
+│
+├── src/
+│   ├── main.asm            ; argc/argv entry point
+│   ├── parser.asm          ; parse argv commands
+│   ├── storage.asm         ; data.db read/write
+│   ├── index.asm           ; index.db lookup/update
+│   ├── file.asm            ; syscall wrappers
+│   ├── utils.asm           ; string helpers
+│   └── constants.asm       ; syscall numbers/flags
+│
+├── include/
+│   ├── parser.inc
+│   ├── storage.inc
+│   ├── index.inc
+│   ├── file.inc
+│   ├── utils.inc
+│   └── constants.inc
+│
+├── build/
+│   ├── main.o
+│   ├── parser.o
+│   ├── storage.o
+│   ├── index.o
+│   ├── file.o
+│   ├── utils.o
+│   └── tinydb              ; final executable
+│
+├── db/
+│   ├── index.db            ; key → metadata
+│   └── data.db             ; raw values
+│
+├── tests/
+│   ├── test_set.sh
+│   ├── test_get.sh
+│   └── test_del.sh
+│
+└── scripts/
+    ├── reset_db.sh         ; clears db files
+    └── inspect_db.sh       ; view raw file contents
