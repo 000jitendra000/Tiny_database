@@ -15,6 +15,7 @@ SRC_DIR  := src
 BUILD_DIR := build
 BIN      := tinydb
 SERVER   := tinydb-server
+HTTP     := tinydb-http
 
 # All assembly source files
 SRCS := $(SRC_DIR)/main.asm     \
@@ -30,14 +31,25 @@ SERVER_SRCS := $(SRC_DIR)/server.asm   \
                $(SRC_DIR)/storage.asm  \
                $(SRC_DIR)/index.asm
 
+
+HTTP_SRCS := $(SRC_DIR)/http_server.asm  \
+             $(SRC_DIR)/http_parser.asm  \
+             $(SRC_DIR)/http_response.asm \
+             $(SRC_DIR)/network.asm      \
+             $(SRC_DIR)/utils.asm        \
+             $(SRC_DIR)/file.asm         \
+             $(SRC_DIR)/storage.asm      \
+             $(SRC_DIR)/index.asm
 # Object files: src/foo.asm → build/foo.o
 OBJS        := $(patsubst $(SRC_DIR)/%.asm, $(BUILD_DIR)/%.o, $(SRCS))
 SERVER_OBJS := $(patsubst $(SRC_DIR)/%.asm, $(BUILD_DIR)/%.o, $(SERVER_SRCS))
+HTTP_OBJS   := $(patsubst $(SRC_DIR)/%.asm, $(BUILD_DIR)/%.o, $(HTTP_SRCS))
 
-.PHONY: all server clean run-set run-get run-del dirs
+.PHONY: all server http clean run-set run-get run-del dirs
 
 all: dirs $(BIN)
 server: dirs $(SERVER)
+http:   dirs $(HTTP)
 
 # Create build and db directories if they don't exist
 dirs:
@@ -51,6 +63,10 @@ $(BIN): $(OBJS)
 $(SERVER): $(SERVER_OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
 	@echo "Built: $(SERVER)"
+
+$(HTTP): $(HTTP_OBJS)
+	$(LD) $(LDFLAGS) -o $@ $^
+	@echo "Built: $(HTTP)"
 
 # Assemble each .asm → .o
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.asm
@@ -72,7 +88,7 @@ clean-db:
 
 # Full clean
 clean:
-	rm -f $(BUILD_DIR)/*.o $(BIN) $(SERVER)
+	rm -f $(BUILD_DIR)/*.o $(BIN)
 	@echo "Cleaned."
 
 # Show hex dump of database files (useful for debugging)
