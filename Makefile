@@ -22,14 +22,16 @@ SRCS := $(SRC_DIR)/main.asm     \
         $(SRC_DIR)/utils.asm    \
         $(SRC_DIR)/file.asm     \
         $(SRC_DIR)/storage.asm  \
-        $(SRC_DIR)/index.asm
+        $(SRC_DIR)/index.asm    \
+        $(SRC_DIR)/schema.asm
 
 SERVER_SRCS := $(SRC_DIR)/server.asm   \
                $(SRC_DIR)/network.asm  \
                $(SRC_DIR)/utils.asm    \
                $(SRC_DIR)/file.asm     \
                $(SRC_DIR)/storage.asm  \
-               $(SRC_DIR)/index.asm
+               $(SRC_DIR)/index.asm    \
+               $(SRC_DIR)/schema.asm
 
 
 HTTP_SRCS := $(SRC_DIR)/http_server.asm  \
@@ -39,7 +41,8 @@ HTTP_SRCS := $(SRC_DIR)/http_server.asm  \
              $(SRC_DIR)/utils.asm        \
              $(SRC_DIR)/file.asm         \
              $(SRC_DIR)/storage.asm      \
-             $(SRC_DIR)/index.asm
+             $(SRC_DIR)/index.asm        \
+             $(SRC_DIR)/schema.asm
 # Object files: src/foo.asm → build/foo.o
 OBJS        := $(patsubst $(SRC_DIR)/%.asm, $(BUILD_DIR)/%.o, $(SRCS))
 SERVER_OBJS := $(patsubst $(SRC_DIR)/%.asm, $(BUILD_DIR)/%.o, $(SERVER_SRCS))
@@ -84,11 +87,11 @@ run-del:
 
 # Wipe the database files (fresh start)
 clean-db:
-	rm -f db/index.db db/data.db
+	rm -f db/index.db db/data.db db/schema.db
 
 # Full clean
 clean:
-	rm -f $(BUILD_DIR)/*.o $(BIN)
+	rm -f $(BUILD_DIR)/*.o $(BIN) $(SERVER) $(HTTP)
 	@echo "Cleaned."
 
 # Show hex dump of database files (useful for debugging)

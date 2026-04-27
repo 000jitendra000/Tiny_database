@@ -40,12 +40,16 @@ global file_seek
 ;   each other's writes (mostly — on local fs it's atomic).
 ; ────────────────────────────────────────────────────────────
 file_open:
-    ; Args already in rdi, rsi, rdx — perfect for this syscall
-    mov     rax, SYS_OPEN
-    syscall
-    ; rax is now the fd (>=0) or a negative error code
-    ret
+    ; openat(AT_FDCWD, pathname, flags, mode)
 
+    mov     r10, rdx        ; mode -> r10 (4th arg)
+    mov     rdx, rsi        ; flags -> rdx (3rd arg)
+    mov     rsi, rdi        ; pathname -> rsi (2nd arg)
+    mov     rdi, -100       ; AT_FDCWD (1st arg)
+
+    mov     rax, SYS_OPENAT
+    syscall
+    ret
 
 ; ────────────────────────────────────────────────────────────
 ; file_close — close a file descriptor

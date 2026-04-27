@@ -5,12 +5,16 @@
 %define SYS_CLOSE       3
 %define SYS_LSEEK       8
 %define SYS_EXIT        60
+%define SYS_OPENAT 257
 
 ; file flags
-%define O_RDONLY        0
-%define O_RDWR          2
-%define O_CREAT         64
-%define O_APPEND        1024
+%define O_RDONLY    0
+%define O_WRONLY    1
+%define O_RDWR      2
+%define O_CREAT     64
+%define O_TRUNC     512
+%define O_APPEND    1024
+
 
 ; seek constants
 %define SEEK_SET        0

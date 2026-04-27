@@ -1,64 +1,38 @@
 ; ============================================================
-; main.asm — program entry point, argument parsing, dispatch
+; main.asm — CLI frontend with schema support
 ; ============================================================
-; This is the first code that runs. The Linux kernel jumps to
-; _start with the stack set up as:
-;
-;   [rsp+0 ] = argc          (int64, number of arguments)
-;   [rsp+8 ] = argv[0]       (pointer to "tinydb\0")
-;   [rsp+16] = argv[1]       (pointer to "SET\0" / "GET\0" / "DEL\0")
-;   [rsp+24] = argv[2]       (pointer to key string)
-;   [rsp+32] = argv[3]       (pointer to value string, SET only)
-;
-; Our job:
-;   1. Load argc and argv from the stack
-;   2. Validate argument count
-;   3. Dispatch to cmd_set / cmd_get / cmd_del
-;   4. Exit cleanly
+; Commands:
+;   tinydb INIT <count> <f1> <f2> ... <fN>
+;   tinydb INSERT <id> <v1> <v2> ... <vN>
+;   tinydb GET <id>
+;   tinydb DEL <id>
 
 %include "include/constants.inc"
 %include "include/utils.inc"
 %include "include/storage.inc"
 %include "include/index.inc"
-
-; Declare the command handler functions we'll implement
-; (defined later in this file)
-; index/storage functions come from their respective .asm files
+%include "include/schema.inc"
 
 section .data
 
-; ── string literals ──────────────────────────────────────────
-; db defines byte sequences. Backtick strings support \n escape.
-; We define length constants alongside each string so we don't
-; have to call str_len on static strings (we know their lengths
-; at assemble time).
+cmd_INIT:       db "INIT",   0
+cmd_INSERT:     db "INSERT", 0
+cmd_GET:        db "GET",    0
+cmd_DEL:        db "DEL",    0
 
-cmd_SET:        db "SET", 0
-cmd_GET:        db "GET", 0
-cmd_DEL:        db "DEL", 0
-
-msg_usage:      db "Usage: tinydb SET <key> <value>", 0x0A
-                db "       tinydb GET <key>", 0x0A
-                db "       tinydb DEL <key>", 0x0A
-msg_usage_len   equ $ - msg_usage   ; $ = current address, so this = length
-
-msg_err_cmd:    db "Error: unknown command", 0x0A
-msg_err_cmd_len equ $ - msg_err_cmd
-
-msg_err_set:    db "Error: SET requires exactly 3 arguments", 0x0A
-msg_err_set_len equ $ - msg_err_set
-
-msg_err_get:    db "Error: GET requires exactly 2 arguments", 0x0A
-msg_err_get_len equ $ - msg_err_get
-
-msg_err_del:    db "Error: DEL requires exactly 2 arguments", 0x0A
-msg_err_del_len equ $ - msg_err_del
-
-msg_not_found:  db "(nil)", 0x0A
-msg_not_found_len equ $ - msg_not_found
+msg_usage:
+    db "Usage:", 0x0A
+    db "  tinydb INIT <count> <field1> <field2> ...", 0x0A
+    db "  tinydb INSERT <id> <val1> <val2> ...", 0x0A
+    db "  tinydb GET <id>", 0x0A
+    db "  tinydb DEL <id>", 0x0A
+msg_usage_len   equ $ - msg_usage
 
 msg_ok:         db "OK", 0x0A
 msg_ok_len      equ $ - msg_ok
+
+msg_not_found:  db "(nil)", 0x0A
+msg_not_found_len equ $ - msg_not_found
 
 msg_deleted:    db "DEL 1", 0x0A
 msg_deleted_len equ $ - msg_deleted
@@ -66,208 +40,268 @@ msg_deleted_len equ $ - msg_deleted
 msg_del_miss:   db "DEL 0", 0x0A
 msg_del_miss_len equ $ - msg_del_miss
 
+msg_err_cmd:    db "Error: unknown command", 0x0A
+msg_err_cmd_len equ $ - msg_err_cmd
+
 msg_err_write:  db "Error: write failed", 0x0A
 msg_err_write_len equ $ - msg_err_write
 
-; ── BSS: uninitialised buffers ────────────────────────────────
-; .bss is zero-filled at program load. No disk space used.
-; We declare them here so they have a fixed address at link time.
+msg_err_schema: db "Error: schema not initialized (run INIT first)", 0x0A
+msg_err_schema_len equ $ - msg_err_schema
+
+msg_err_fields: db "Error: wrong number of field values", 0x0A
+msg_err_fields_len equ $ - msg_err_fields
+
+msg_err_argc:   db "Error: wrong number of arguments", 0x0A
+msg_err_argc_len equ $ - msg_err_argc
 
 section .bss
 
-; Buffer for index_find result — one full index record (80 bytes)
 index_record:   resb INDEX_RECORD_SIZE
-
-; Buffer for reading values from data.db
 value_buf:      resb MAX_VAL_LEN
+schema_field_count: resq 1
+schema_names:   resb MAX_SCHEMA_FIELDS * MAX_FIELD_NAME_LEN
+field_val_ptrs: resq MAX_SCHEMA_FIELDS
+serial_buf:     resb MAX_RECORD_VAL_LEN
+init_names_buf: resb MAX_SCHEMA_FIELDS * MAX_FIELD_NAME_LEN
 
-
-; ============================================================
 section .text
 
 global _start
 
-
-; ────────────────────────────────────────────────────────────
-; _start — kernel hands control here
-;
-; Register plan:
-;   rbx = argc
-;   r12 = base of argv array (points to argv[0])
-;   r13 = argv[1] (command string: "SET"/"GET"/"DEL")
-;   r14 = argv[2] (key)
-;   r15 = argv[3] (value, only for SET)
-;
-; We use callee-saved registers (rbx, r12–r15) so that any
-; function we call cannot legally clobber them.
-; ────────────────────────────────────────────────────────────
 _start:
-    ; ── 1. Load argc and argv from the stack ─────────────────
-    mov     rbx, [rsp]          ; rbx = argc
-                                ; [rsp] dereferences the stack pointer
-                                ; The kernel put argc here before jumping to us
+    mov     rbx, [rsp]
+    lea     r12, [rsp + 8]
 
-    lea     r12, [rsp + 8]      ; r12 = &argv[0]
-                                ; lea = Load Effective Address
-                                ; rsp+8 is where argv[0] pointer lives
-                                ; We store the BASE of the array, not argv[0] itself
+    cmp     rbx, 2
+    jl      .usage
 
-    ; ── 2. Validate: need at least 3 args (tinydb CMD key) ───
-    ; argc < 3 means user ran just "tinydb" or "tinydb SET"
-    cmp     rbx, 3
-    jl      .usage              ; signed less-than jump
+    mov     r13, [r12 + 8]      ; argv[1] = command
 
-    ; ── 3. Load argv[1] = command ────────────────────────────
-    mov     r13, [r12 + 8]      ; r13 = argv[1] = pointer to command string
-                                ; r12 points to argv[0], so r12+8 is argv[1]
-                                ; Each pointer is 8 bytes on 64-bit Linux
-
-    mov     r14, [r12 + 16]     ; r14 = argv[2] = key pointer
-
-    ; argv[3] only exists for SET — load it regardless,
-    ; we'll only use it after confirming the command is SET
-    ; and argc == 4. If argc < 4, r15 is just a garbage pointer
-    ; we never dereference.
-    cmp     rbx, 4
-    jl      .skip_argv3
-    mov     r15, [r12 + 24]     ; r15 = argv[3] = value pointer
-.skip_argv3:
-
-    ; ── 4. Dispatch on command string ────────────────────────
-    ; strcmp(argv[1], "SET")
-    mov     rdi, r13            ; rdi = argv[1]
-    mov     rsi, cmd_SET        ; rsi = "SET"
+    mov     rdi, r13
+    mov     rsi, cmd_INIT
     call    str_cmp
-    test    rax, rax            ; rax==0 means equal
-    jz      .do_set
+    test    rax, rax
+    jz      .do_init
 
-    ; strcmp(argv[1], "GET")
+    mov     rdi, r13
+    mov     rsi, cmd_INSERT
+    call    str_cmp
+    test    rax, rax
+    jz      .do_insert
+
     mov     rdi, r13
     mov     rsi, cmd_GET
     call    str_cmp
     test    rax, rax
     jz      .do_get
 
-    ; strcmp(argv[1], "DEL")
     mov     rdi, r13
     mov     rsi, cmd_DEL
     call    str_cmp
     test    rax, rax
     jz      .do_del
 
-    ; No match — unknown command
     jmp     .unknown_cmd
 
-; ── Command handlers ─────────────────────────────────────────
-
-.do_set:
-    ; SET requires exactly 4 args: tinydb SET key value
+; ============================================================
+; INIT <count> <f1> <f2> ... <fN>
+; ============================================================
+.do_init:
     cmp     rbx, 4
-    jne     .err_set_args
+    jl      .err_argc
 
-    ; Compute key length
-    mov     rdi, r14            ; rdi = key pointer
-    call    str_len
-    mov     rbx, rax            ; rbx = key_len (save it)
+    mov     r14, [r12 + 16]     ; argv[2] = count string
+    xor     r15, r15
+    mov     rdi, r14
+.parse_count:
+    movzx   rax, byte [rdi]
+    cmp     rax, '0'
+    jl      .count_done
+    cmp     rax, '9'
+    jg      .count_done
+    imul    r15, r15, 10
+    sub     rax, '0'
+    add     r15, rax
+    inc     rdi
+    jmp     .parse_count
+.count_done:
 
-    ; Compute value length
-    mov     rdi, r15            ; rdi = value pointer
-    call    str_len
-    mov     r13, rax            ; r13 = val_len
+    lea     rax, [r15 + 3]
+    cmp     rbx, rax
+    jne     .err_fields
 
-    ; Step A: Append value to data.db
-    ; storage_append(value_ptr, value_len) → rax = data offset
-    mov     rdi, r15            ; rdi = value pointer
-    mov     rsi, r13            ; rsi = value length
-    call    storage_append
+    ; build space-separated names string into init_names_buf
+    lea     rdi, [init_names_buf]
+    xor     r14, r14            ; offset into init_names_buf
+    xor     rcx, rcx
+.build_names:
+    cmp     rcx, r15
+    jge     .names_done
+    mov     rax, rcx
+    add     rax, 3
+    mov     rsi, [r12 + rax * 8]
+    cmp     rcx, 0
+    je      .no_sp
+    mov     byte [rdi + r14], ' '
+    inc     r14
+.no_sp:
+.cp_name:
+    movzx   rax, byte [rsi]
+    cmp     rax, 0
+    je      .cp_done
+    mov     byte [rdi + r14], al
+    inc     r14
+    inc     rsi
+    jmp     .cp_name
+.cp_done:
+    inc     rcx
+    jmp     .build_names
+.names_done:
+
+    mov     rdi, r15
+    lea     rsi, [init_names_buf]
+    mov     rdx, r14
+    call    schema_init
     cmp     rax, -1
     je      .err_write
-    mov     r12, rax            ; r12 = data offset returned by storage_append
 
-    ; Step B: Write index record
-    ; index_put(key_ptr, key_len, data_offset, val_len)
-    mov     rdi, r14            ; rdi = key pointer
-    mov     rsi, rbx            ; rsi = key_len
-    mov     rdx, r12            ; rdx = data offset
-    mov     rcx, r13            ; rcx = val_len
-    call    index_put
-    cmp     rax, -1
-    je      .err_write
-
-    ; Print "OK"
     mov     rdi, msg_ok
     mov     rsi, msg_ok_len
     call    print_str
     jmp     .exit_ok
 
-.do_get:
-    ; GET requires exactly 3 args: tinydb GET key
-    cmp     rbx, 3
-    jne     .err_get_args
+; ============================================================
+; INSERT <id> <v1> <v2> ... <vN>
+; ============================================================
+.do_insert:
+    cmp     rbx, 4
+    jl      .err_argc
 
-    ; Compute key length
+    lea     rdi, [schema_field_count]
+    lea     rsi, [schema_names]
+    call    schema_load
+    cmp     rax, -1
+    je      .err_schema
+    mov     r15, rax            ; r15 = field_count
+
+    lea     rax, [r15 + 3]
+    cmp     rbx, rax
+    jne     .err_fields
+
+    mov     r14, [r12 + 16]     ; argv[2] = id (key)
+
+    xor     rcx, rcx
+.build_ptrs:
+    cmp     rcx, r15
+    jge     .ptrs_done
+    mov     rax, rcx
+    add     rax, 3
+    mov     rsi, [r12 + rax * 8]
+    mov     [field_val_ptrs + rcx * 8], rsi
+    inc     rcx
+    jmp     .build_ptrs
+.ptrs_done:
+
+    lea     rdi, [field_val_ptrs]
+    mov     rsi, r15
+    lea     rdx, [serial_buf]
+    call    schema_serialize
+    mov     r13, rax            ; r13 = serialized length
+
     mov     rdi, r14
     call    str_len
-    mov     r13, rax            ; r13 = key_len
+    mov     rbx, rax            ; rbx = key_len
 
-    ; Search index.db for this key
-    ; index_find(key_ptr, key_len, result_buf) → rax=0 found, -1 not found
-    mov     rdi, r14            ; key pointer
-    mov     rsi, r13            ; key_len
-    mov     rdx, index_record   ; buffer to receive the 80-byte record
-    call    index_find
+    lea     rdi, [serial_buf]
+    mov     rsi, r13
+    call    storage_append
     cmp     rax, -1
-    je      .not_found
+    je      .err_write
+    mov     r12, rax            ; r12 = data offset
 
-    ; Extract offset and val_len from the result record
-    ; index_record layout: [0]=key_len, [1..63]=key, [64]=offset(8B), [72]=val_len(4B), [76]=deleted
-    mov     rdi, [index_record + INDEX_OFF_OFFSET]      ; rdi = data offset (8 bytes)
-    mov     esi, dword [index_record + INDEX_OFF_VALLEN]; esi = val_len; writing esi zero-extends to rsi
-
-    ; Read value from data.db
-    ; storage_read(offset, buffer, max_len) → rax = bytes read
-    mov     rdx, value_buf      ; rdx = output buffer
-    call    storage_read
+    mov     rdi, r14
+    mov     rsi, rbx
+    mov     rdx, r12
+    mov     rcx, r13
+    call    index_put
     cmp     rax, -1
-    je      .not_found
+    je      .err_write
 
-    ; Print the value followed by newline
-    mov     rdi, value_buf
-    mov     rsi, rax            ; rax = bytes read = value length
+    mov     rdi, msg_ok
+    mov     rsi, msg_ok_len
     call    print_str
-    call    print_newline
     jmp     .exit_ok
 
-.do_del:
-    ; DEL requires exactly 3 args: tinydb DEL key
+; ============================================================
+; GET <id>
+; ============================================================
+.do_get:
     cmp     rbx, 3
-    jne     .err_del_args
+    jne     .err_argc
 
-    ; Compute key length
+    mov     r14, [r12 + 16]
+
+    lea     rdi, [schema_field_count]
+    lea     rsi, [schema_names]
+    call    schema_load
+    cmp     rax, -1
+    je      .err_schema
+    mov     r15, rax
+
     mov     rdi, r14
     call    str_len
     mov     r13, rax
 
-    ; index_delete(key_ptr, key_len) → rax=0 deleted, -1 not found
+    mov     rdi, r14
+    mov     rsi, r13
+    mov     rdx, index_record
+    call    index_find
+    cmp     rax, -1
+    je      .not_found
+
+    mov     rdi, [index_record + INDEX_OFF_OFFSET]
+    mov     esi, dword [index_record + INDEX_OFF_VALLEN]
+    mov     rdx, value_buf
+    call    storage_read
+    cmp     rax, -1
+    je      .not_found
+
+    mov     rdi, value_buf
+    mov     rsi, rax
+    lea     rdx, [schema_names]
+    mov     rcx, r15
+    call    schema_print_record
+    jmp     .exit_ok
+
+; ============================================================
+; DEL <id>
+; ============================================================
+.do_del:
+    cmp     rbx, 3
+    jne     .err_argc
+
+    mov     r14, [r12 + 16]
+    mov     rdi, r14
+    call    str_len
+    mov     r13, rax
+
     mov     rdi, r14
     mov     rsi, r13
     call    index_delete
     cmp     rax, -1
     je      .del_miss
 
-    ; Print "DEL 1" (Redis-style: number of keys deleted)
     mov     rdi, msg_deleted
     mov     rsi, msg_deleted_len
     call    print_str
     jmp     .exit_ok
 
-; ── Error / edge case handlers ───────────────────────────────
-
 .not_found:
     mov     rdi, msg_not_found
     mov     rsi, msg_not_found_len
     call    print_str
-    jmp     .exit_ok            ; not finding a key is not a program error
+    jmp     .exit_ok
 
 .del_miss:
     mov     rdi, msg_del_miss
@@ -287,21 +321,21 @@ _start:
     call    print_err
     jmp     .exit_err
 
-.err_set_args:
-    mov     rdi, msg_err_set
-    mov     rsi, msg_err_set_len
+.err_argc:
+    mov     rdi, msg_err_argc
+    mov     rsi, msg_err_argc_len
     call    print_err
     jmp     .exit_err
 
-.err_get_args:
-    mov     rdi, msg_err_get
-    mov     rsi, msg_err_get_len
+.err_fields:
+    mov     rdi, msg_err_fields
+    mov     rsi, msg_err_fields_len
     call    print_err
     jmp     .exit_err
 
-.err_del_args:
-    mov     rdi, msg_err_del
-    mov     rsi, msg_err_del_len
+.err_schema:
+    mov     rdi, msg_err_schema
+    mov     rsi, msg_err_schema_len
     call    print_err
     jmp     .exit_err
 
@@ -310,11 +344,6 @@ _start:
     mov     rsi, msg_err_write_len
     call    print_err
     jmp     .exit_err
-
-; ── Exit paths ───────────────────────────────────────────────
-; Syscall: exit(status)
-;   rax = SYS_EXIT (60)
-;   rdi = exit status code
 
 .exit_ok:
     mov     rdi, EXIT_OK
