@@ -25,6 +25,8 @@
 section .data
 
 schema_path:    db "db/schema.db", 0
+data_path:      db "db/data.db", 0
+index_path:     db "db/index.db", 0
 newline:        db 0x0A
 colon_space:    db ": "
 colon_sp_len    equ $ - colon_space
@@ -132,6 +134,31 @@ schema_init:
     jl      .err_open
 
     push    rax                 ; save fd on stack
+
+    ; truncate data.db
+    mov     rdi, data_path
+    mov     rsi, O_WRONLY | O_CREAT | O_TRUNC
+    mov     rdx, MODE_FILE
+    call    file_open
+    cmp     rax, 0
+    jl      .err_write1
+    mov     rdi, rax
+    call    file_close
+
+    ; truncate index.db
+    mov     rdi, index_path
+    mov     rsi, O_WRONLY | O_CREAT | O_TRUNC
+    mov     rdx, MODE_FILE
+    call    file_open
+    cmp     rax, 0
+    jl      .err_write1
+    mov     rdi, rax
+    call    file_close
+
+    ; write field count as decimal
+    mov     rdi, r12
+    lea     rsi, [schema_read_buf]
+    call    itoa_byte
 
     ; write field count as decimal
     mov     rdi, r12

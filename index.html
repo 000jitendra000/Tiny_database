@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tinydb — Admin Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <div class="brand-icon">
+          <span class="brand-icon-inner"></span>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">tinydb</span>
+          <span class="brand-sub">ADMIN DASHBOARD</span>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-pill" id="statusPill">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="statusLabel">Checking...</span>
+        </div>
+        <div class="header-meta">
+          <span class="meta-item">localhost:8080</span>
+          <span class="meta-divider">·</span>
+          <span class="meta-item" id="headerSchema">No schema</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN GRID -->
+  <main class="main">
+
+    <!-- LEFT COLUMN -->
+    <div class="col-left">
+
+      <!-- SCHEMA INIT -->
+      <section class="card card--accent" id="cardInit">
+        <div class="card-header">
+          <div class="card-label">01</div>
+          <div class="card-title-group">
+            <h2 class="card-title">Schema Init</h2>
+            <p class="card-desc">Define the record structure. Run once before inserting data.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="field">
+              <label class="field-label" for="initCount">Field Count</label>
+              <input class="field-input" type="number" id="initCount" min="1" max="16" placeholder="3" />
+            </div>
+            <div class="field field--grow">
+              <label class="field-label" for="initFields">Field Names <span class="field-hint">space separated</span></label>
+              <input class="field-input" type="text" id="initFields" placeholder="name age city" />
+            </div>
+          </div>
+          <button class="btn btn--primary" id="btnInit">
+            <span class="btn-text">Initialize Schema</span>
+            <span class="btn-loader" hidden></span>
+          </button>
+        </div>
+      </section>
+
+      <!-- INSERT RECORD -->
+      <section class="card" id="cardInsert">
+        <div class="card-header">
+          <div class="card-label">02</div>
+          <div class="card-title-group">
+            <h2 class="card-title">Insert Record</h2>
+            <p class="card-desc">Add or overwrite a record by ID.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="field">
+            <label class="field-label" for="insertId">Record ID</label>
+            <input class="field-input" type="text" id="insertId" placeholder="1" />
+          </div>
+          <div id="insertDynFields" class="dynamic-fields">
+            <div class="no-schema-notice">
+              <span class="notice-icon">◈</span>
+              Initialize schema first to unlock field inputs
+            </div>
+          </div>
+          <button class="btn btn--primary" id="btnInsert">
+            <span class="btn-text">Insert Record</span>
+            <span class="btn-loader" hidden></span>
+          </button>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="col-right">
+
+      <!-- GET RECORD -->
+      <section class="card" id="cardGet">
+        <div class="card-header">
+          <div class="card-label">03</div>
+          <div class="card-title-group">
+            <h2 class="card-title">Fetch Record</h2>
+            <p class="card-desc">Retrieve a record by ID.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="field-inline">
+            <input class="field-input" type="text" id="getId" placeholder="Record ID" />
+            <button class="btn btn--ghost" id="btnGet">
+              <span class="btn-text">Fetch</span>
+              <span class="btn-loader" hidden></span>
+            </button>
+          </div>
+          <div class="result-panel" id="getResult" hidden>
+            <div class="result-header">
+              <span class="result-label">RESULT</span>
+              <span class="result-id" id="getResultId"></span>
+            </div>
+            <div class="result-body" id="getResultBody"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DELETE RECORD -->
+      <section class="card card--danger-zone" id="cardDel">
+        <div class="card-header">
+          <div class="card-label">04</div>
+          <div class="card-title-group">
+            <h2 class="card-title">Delete Record</h2>
+            <p class="card-desc">Permanently remove a record by ID.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="field-inline">
+            <input class="field-input" type="text" id="delId" placeholder="Record ID" />
+            <button class="btn btn--danger" id="btnDel">
+              <span class="btn-text">Delete</span>
+              <span class="btn-loader" hidden></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACTIVITY LOG -->
+      <section class="card card--log" id="cardLog">
+        <div class="card-header">
+          <div class="card-label">LOG</div>
+          <div class="card-title-group">
+            <h2 class="card-title">Activity</h2>
+          </div>
+          <button class="btn-clear" id="btnClearLog" title="Clear log">✕</button>
+        </div>
+        <div class="log-panel" id="logPanel">
+          <div class="log-empty">No activity yet.</div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

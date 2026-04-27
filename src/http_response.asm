@@ -22,20 +22,29 @@ section .data
 ; so we can handle variable-length JSON bodies.
 
 hdr_200:
-    db "HTTP/1.1 200 OK", 0x0D, 0x0A
-    db "Content-Type: application/json", 0x0D, 0x0A
+    db "HTTP/1.1 200 OK", 13,10
+    db "Content-Type: application/json", 13,10
+    db "Access-Control-Allow-Origin: *", 13,10
+    db "Access-Control-Allow-Methods: GET, POST, OPTIONS", 13,10
+    db "Access-Control-Allow-Headers: Content-Type", 13,10
     db "Content-Length: "
 hdr_200_len     equ $ - hdr_200
 
 hdr_404:
-    db "HTTP/1.1 404 Not Found", 0x0D, 0x0A
-    db "Content-Type: application/json", 0x0D, 0x0A
+    db "HTTP/1.1 404 Not Found", 13,10
+    db "Content-Type: application/json", 13,10
+    db "Access-Control-Allow-Origin: *", 13,10
+    db "Access-Control-Allow-Methods: GET, POST, OPTIONS", 13,10
+    db "Access-Control-Allow-Headers: Content-Type", 13,10
     db "Content-Length: "
 hdr_404_len     equ $ - hdr_404
 
 hdr_400:
-    db "HTTP/1.1 400 Bad Request", 0x0D, 0x0A
-    db "Content-Type: application/json", 0x0D, 0x0A
+    db "HTTP/1.1 400 Bad Request", 13,10
+    db "Content-Type: application/json", 13,10
+    db "Access-Control-Allow-Origin: *", 13,10
+    db "Access-Control-Allow-Methods: GET, POST, OPTIONS", 13,10
+    db "Access-Control-Allow-Headers: Content-Type", 13,10
     db "Content-Length: "
 hdr_400_len     equ $ - hdr_400
 
